@@ -351,7 +351,7 @@ export default function DubaiRECampaign() {
         <PageHeader
           title={campaign.name}
           subtitle={campaign.structured_query ? `${campaign.structured_query.location} · ${campaign.structured_query.searchTerms.slice(0, 2).join(", ")}` : campaign.query}
-          action={
+          right={
             <span className={`text-xs font-bold px-3 py-1 rounded-full border uppercase tracking-wide ${STATUS_COLORS[campaign.status]}`}>
               {campaign.status}
               {campaign.status === "searching" && <span className="ml-2 inline-block w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />}
@@ -759,7 +759,8 @@ function StatCard({
 }: {
   label: string;
   value: number;
-  icon: React.FC<{ size?: number; className?: string }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: React.ElementType<any>;
   color?: string;
 }) {
   return (

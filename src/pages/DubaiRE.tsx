@@ -121,7 +121,7 @@ export default function DubaiRE() {
       <PageHeader
         title="Dubai RE SDR"
         subtitle="AI-powered outreach for UAE real estate brokerages"
-        action={
+        right={
           <button
             className="btn-primary flex items-center gap-2"
             onClick={() => setWizardOpen(true)}
@@ -326,7 +326,8 @@ function Stat({
   label,
   color,
 }: {
-  icon: React.FC<{ size?: number; className?: string }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  icon: React.ElementType<any>;
   value: number;
   label: string;
   color?: string;
