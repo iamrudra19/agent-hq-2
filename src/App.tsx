@@ -18,6 +18,8 @@ import Outreach from "@/pages/Outreach";
 import CampaignDetail from "@/pages/CampaignDetail";
 import Inbox from "@/pages/Inbox";
 import Analytics from "@/pages/Analytics";
+import DubaiRE from "@/pages/DubaiRE";
+import DubaiRECampaign from "@/pages/DubaiRECampaign";
 
 export default function App() {
   return (
@@ -51,6 +53,8 @@ function Shell() {
           <Route path="/pages" element={<Pages />} />
           <Route path="/outreach" element={<Outreach />} />
           <Route path="/outreach/:id" element={<CampaignDetail />} />
+          <Route path="/re" element={<DubaiRE />} />
+          <Route path="/re/:id" element={<DubaiRECampaign />} />
           <Route path="/inbox" element={<Inbox />} />
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/webhooks" element={<Webhooks />} />

@@ -13,10 +13,11 @@ import {
   Settings as SettingsIcon,
   BarChart3,
   FormInput,
+  Landmark,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const NAV = [
+const NAV_MAIN = [
   { to: "/", label: "Office", icon: Building2, end: true },
   { to: "/tasks", label: "Tasks", icon: KanbanSquare },
   { to: "/activity", label: "Activity", icon: ActivityIcon },
@@ -32,12 +33,16 @@ const NAV = [
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
+const NAV_RE = [
+  { to: "/re", label: "Dubai RE SDR", icon: Landmark },
+];
+
 export default function Sidebar() {
   return (
-    <aside className="w-[280px] shrink-0 border-r border-white/[0.06] px-5 py-8 flex flex-col gap-10">
+    <aside className="w-[280px] shrink-0 border-r border-white/[0.06] px-5 py-8 flex flex-col gap-8">
       <Logo />
       <nav className="flex flex-col gap-1">
-        {NAV.map(({ to, label, icon: Icon, end }) => (
+        {NAV_MAIN.map(({ to, label, icon: Icon, end }) => (
           <NavLink
             key={to}
             to={to}
@@ -49,6 +54,33 @@ export default function Sidebar() {
           </NavLink>
         ))}
       </nav>
+
+      <div>
+        <p className="text-[10px] uppercase tracking-[0.3em] text-white/30 font-bold px-3 mb-2">Verticals</p>
+        <nav className="flex flex-col gap-1">
+          {NAV_RE.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              className={({ isActive }) =>
+                cn(
+                  "nav-pill",
+                  isActive && "active",
+                  "border border-transparent",
+                  isActive ? "border-accent/30" : "hover:border-white/10",
+                )
+              }
+            >
+              <Icon size={18} strokeWidth={2} className="text-accent" />
+              <span>{label}</span>
+              <span className="ml-auto text-[9px] font-bold px-1.5 py-0.5 rounded bg-accent/20 text-accent uppercase tracking-wider">
+                AE
+              </span>
+            </NavLink>
+          ))}
+        </nav>
+      </div>
+
       <div className="mt-auto">
         <div className="glass px-4 py-3">
           <p className="text-xs uppercase tracking-widest text-white/70 mb-1.5 font-display font-bold">Status</p>
