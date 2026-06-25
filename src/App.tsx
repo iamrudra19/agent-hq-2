@@ -1,25 +1,16 @@
 import { Routes, Route, Navigate } from "react-router-dom";
-import Sidebar from "@/components/Sidebar";
-import Office from "@/pages/Office";
-import Tasks from "@/pages/Tasks";
-import Activity from "@/pages/Activity";
-import Agents from "@/pages/Agents";
-import Forms from "@/pages/Forms";
-import FormSubmissions from "@/pages/FormSubmissions";
-import Webhooks from "@/pages/Webhooks";
-import Integrations from "@/pages/Integrations";
-import Voice from "@/pages/Voice";
-import VoiceInvitationBanner from "@/components/VoiceInvitationBanner";
-import LiveAgentFeed from "@/components/LiveAgentFeed";
-import Pages from "@/pages/Pages";
-import PublicForm from "@/pages/PublicForm";
-import Settings from "@/pages/Settings";
-import Outreach from "@/pages/Outreach";
-import CampaignDetail from "@/pages/CampaignDetail";
+import RESidebar from "@/components/RESidebar";
+import RECommandCenter from "@/pages/RECommandCenter";
+import RELeads from "@/pages/RELeads";
+import RECampaigns from "@/pages/RECampaigns";
+import RECampaignDetail from "@/pages/RECampaignDetail";
+import REPipeline from "@/pages/REPipeline";
+import REMarketIntel from "@/pages/REMarketIntel";
 import Inbox from "@/pages/Inbox";
 import Analytics from "@/pages/Analytics";
-import DubaiRE from "@/pages/DubaiRE";
-import DubaiRECampaign from "@/pages/DubaiRECampaign";
+import Integrations from "@/pages/Integrations";
+import Settings from "@/pages/Settings";
+import PublicForm from "@/pages/PublicForm";
 
 export default function App() {
   return (
@@ -38,30 +29,23 @@ export default function App() {
 function Shell() {
   return (
     <div className="flex min-h-screen">
-      <Sidebar />
-      <VoiceInvitationBanner />
-      <LiveAgentFeed />
-      <main className="flex-1 px-10 py-8 max-w-[1600px] mx-auto w-full">
-        <Routes>
-          <Route path="/" element={<Office />} />
-          <Route path="/tasks" element={<Tasks />} />
-          <Route path="/activity" element={<Activity />} />
-          <Route path="/agents" element={<Agents />} />
-          <Route path="/voice" element={<Voice />} />
-          <Route path="/forms" element={<Forms />} />
-          <Route path="/forms/:slug" element={<FormSubmissions />} />
-          <Route path="/pages" element={<Pages />} />
-          <Route path="/outreach" element={<Outreach />} />
-          <Route path="/outreach/:id" element={<CampaignDetail />} />
-          <Route path="/re" element={<DubaiRE />} />
-          <Route path="/re/:id" element={<DubaiRECampaign />} />
-          <Route path="/inbox" element={<Inbox />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/webhooks" element={<Webhooks />} />
-          <Route path="/integrations" element={<Integrations />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+      <RESidebar />
+      <main className="flex-1 px-8 py-7 overflow-y-auto">
+        <div className="max-w-[1400px] mx-auto w-full">
+          <Routes>
+            <Route path="/" element={<RECommandCenter />} />
+            <Route path="/leads" element={<RELeads />} />
+            <Route path="/campaigns" element={<RECampaigns />} />
+            <Route path="/campaigns/:id" element={<RECampaignDetail />} />
+            <Route path="/pipeline" element={<REPipeline />} />
+            <Route path="/inbox" element={<Inbox />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/market" element={<REMarketIntel />} />
+            <Route path="/integrations" element={<Integrations />} />
+            <Route path="/settings" element={<Settings />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </div>
       </main>
     </div>
   );
