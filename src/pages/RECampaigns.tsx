@@ -15,8 +15,8 @@ type Campaign = {
   name: string;
   query: string;
   description?: string;
-  structured_query: { location: string; searchTerms: string[]; maxResults: number } | null;
-  status: "draft" | "searching" | "ready" | "sending" | "completed" | "failed";
+  structured_query?: { location?: string; searchTerms?: string[]; maxResults?: number } | null;
+  status: string;
   total_leads_found: number;
   leads_imported: number;
   emails_generated: number;
@@ -31,14 +31,18 @@ type Campaign = {
 
 type IcpTemplate = {
   id: string;
-  name: string;
+  label?: string;
+  name?: string;
   description: string;
-  searchTerms: string[];
-  location: string;
-  maxResults: number;
+  query?: string;
+  structured_query?: { location?: string; searchTerms?: string[]; maxResults?: number };
+  searchTerms?: string[];
+  location?: string;
+  maxResults?: number;
 };
 
-const STATUS_STYLE: Record<Campaign["status"], { tag: string; label: string }> = {
+const STATUS_FALLBACK = { tag: "bg-white/8 border-white/20 text-white/50", label: "Unknown" };
+const STATUS_STYLE: Record<string, { tag: string; label: string }> = {
   draft: { tag: "bg-white/8 border-white/20 text-white/50", label: "Draft" },
   searching: { tag: "bg-primary/15 border-primary/35 text-primary", label: "Scraping…" },
   ready: { tag: "bg-accent/15 border-accent/35 text-accent", label: "Ready" },
@@ -46,6 +50,23 @@ const STATUS_STYLE: Record<Campaign["status"], { tag: string; label: string }> =
   completed: { tag: "bg-success/15 border-success/35 text-success", label: "Completed" },
   failed: { tag: "bg-danger/15 border-danger/35 text-danger", label: "Failed" },
 };
+
+function getStatus(s: string | undefined | null) {
+  return STATUS_STYLE[s ?? ""] ?? STATUS_FALLBACK;
+}
+
+function tplName(t: IcpTemplate): string {
+  return t.label ?? t.name ?? "Untitled Template";
+}
+function tplLocation(t: IcpTemplate): string {
+  return t.structured_query?.location ?? t.location ?? "";
+}
+function tplSearchTerms(t: IcpTemplate): string[] {
+  return t.structured_query?.searchTerms ?? t.searchTerms ?? [];
+}
+function tplMaxResults(t: IcpTemplate): number {
+  return t.structured_query?.maxResults ?? t.maxResults ?? 50;
+}
 
 const STATUS_FILTERS = ["all", "ready", "sending", "completed", "searching", "draft", "failed"] as const;
 
@@ -64,8 +85,8 @@ export default function RECampaigns() {
         call<Campaign[]>("outreach.campaign.list").catch(() => []),
         call<IcpTemplate[]>("re.icp.templates").catch(() => []),
       ]);
-      setCampaigns(camps);
-      setTemplates(tmpls);
+      setCampaigns(Array.isArray(camps) ? camps : []);
+      setTemplates(Array.isArray(tmpls) ? tmpls : []);
     } finally {
       setLoaded(true);
       setRefreshing(false);
@@ -80,7 +101,7 @@ export default function RECampaigns() {
     if (search) {
       const q = search.toLowerCase();
       list = list.filter((c) =>
-        c.name.toLowerCase().includes(q) ||
+        (c.name ?? "").toLowerCase().includes(q) ||
         (c.query ?? "").toLowerCase().includes(q) ||
         (c.description ?? "").toLowerCase().includes(q),
       );
@@ -90,9 +111,9 @@ export default function RECampaigns() {
 
   const totals = useMemo(() => ({
     campaigns: campaigns.length,
-    leads: campaigns.reduce((s, c) => s + c.leads_imported, 0),
-    sent: campaigns.reduce((s, c) => s + c.emails_sent, 0),
-    replied: campaigns.reduce((s, c) => s + c.emails_replied, 0),
+    leads: campaigns.reduce((s, c) => s + (c.leads_imported ?? 0), 0),
+    sent: campaigns.reduce((s, c) => s + (c.emails_sent ?? 0), 0),
+    replied: campaigns.reduce((s, c) => s + (c.emails_replied ?? 0), 0),
   }), [campaigns]);
 
   return (
@@ -175,72 +196,71 @@ export default function RECampaigns() {
       {/* Campaign list */}
       {filtered.length > 0 && (
         <div className="space-y-2">
-          {filtered.map((c) => (
-            <Link key={c.id} to={`/campaigns/${c.id}`}>
-              <GlassCard className="p-0 overflow-hidden hover:border-white/15 transition-colors" hover>
-                <div className="flex items-center gap-4 px-5 py-4">
-                  {/* Status indicator */}
-                  <div className="shrink-0">
-                    {c.status === "searching" ? (
-                      <Loader2 size={16} className="text-primary animate-spin" />
-                    ) : c.status === "completed" ? (
-                      <CheckCircle size={16} className="text-success" />
-                    ) : c.status === "failed" ? (
-                      <AlertCircle size={16} className="text-danger" />
-                    ) : (
-                      <Target size={16} className="text-white/30" />
-                    )}
-                  </div>
-
-                  {/* Name + location */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2.5 flex-wrap">
-                      <span className="font-bold text-sm text-white">{c.name}</span>
-                      <span className={`tag text-[9px] ${STATUS_STYLE[c.status].tag}`}>
-                        {STATUS_STYLE[c.status].label}
-                      </span>
+          {filtered.map((c) => {
+            const st = getStatus(c.status);
+            const sq = c.structured_query;
+            const terms = Array.isArray(sq?.searchTerms) ? sq!.searchTerms!.slice(0, 2).join(", ") : "";
+            return (
+              <Link key={c.id} to={`/campaigns/${c.id}`}>
+                <GlassCard className="p-0 overflow-hidden hover:border-white/15 transition-colors" hover>
+                  <div className="flex items-center gap-4 px-5 py-4">
+                    <div className="shrink-0">
+                      {c.status === "searching" ? (
+                        <Loader2 size={16} className="text-primary animate-spin" />
+                      ) : c.status === "completed" ? (
+                        <CheckCircle size={16} className="text-success" />
+                      ) : c.status === "failed" ? (
+                        <AlertCircle size={16} className="text-danger" />
+                      ) : (
+                        <Target size={16} className="text-white/30" />
+                      )}
                     </div>
-                    {c.structured_query && (
-                      <div className="flex items-center gap-1 text-xs text-white/35 mt-0.5">
-                        <MapPin size={10} />
-                        <span>{c.structured_query.location ?? ""}</span>
-                        {Array.isArray(c.structured_query.searchTerms) && c.structured_query.searchTerms.length > 0 && (
-                          <>
-                            <span className="text-white/20">·</span>
-                            <span>{c.structured_query.searchTerms.slice(0, 2).join(", ")}</span>
-                          </>
-                        )}
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <span className="font-bold text-sm text-white">{c.name ?? "Untitled"}</span>
+                        <span className={`tag text-[9px] ${st.tag}`}>{st.label}</span>
                       </div>
-                    )}
-                  </div>
+                      {sq && (sq.location || terms) && (
+                        <div className="flex items-center gap-1 text-xs text-white/35 mt-0.5">
+                          <MapPin size={10} />
+                          <span>{sq.location ?? ""}</span>
+                          {terms && (
+                            <>
+                              <span className="text-white/20">·</span>
+                              <span>{terms}</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
 
-                  {/* Metrics */}
-                  <div className="hidden md:flex items-center gap-6 text-xs shrink-0">
-                    <Metric icon={Users} value={c.leads_imported} label="leads" color="text-white/60" />
-                    <Metric icon={Send} value={c.emails_sent} label="sent" color="text-blue-400" />
-                    <Metric icon={MessageSquare} value={c.emails_replied} label="replied" color="text-success" />
-                    <Metric icon={TrendingUp} value={c.emails_clicked} label="clicked" color="text-accent" />
-                  </div>
+                    <div className="hidden md:flex items-center gap-6 text-xs shrink-0">
+                      <Metric icon={Users} value={c.leads_imported ?? 0} label="leads" color="text-white/60" />
+                      <Metric icon={Send} value={c.emails_sent ?? 0} label="sent" color="text-blue-400" />
+                      <Metric icon={MessageSquare} value={c.emails_replied ?? 0} label="replied" color="text-success" />
+                      <Metric icon={TrendingUp} value={c.emails_clicked ?? 0} label="clicked" color="text-accent" />
+                    </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-[10px] text-white/25 hidden sm:block">
-                      <Clock size={9} className="inline mr-1" />{timeAgo(c.updated_at)}
-                    </span>
-                    <ChevronRight size={14} className="text-white/20" />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-[10px] text-white/25 hidden sm:block">
+                        <Clock size={9} className="inline mr-1" />{timeAgo(c.updated_at ?? null)}
+                      </span>
+                      <ChevronRight size={14} className="text-white/20" />
+                    </div>
                   </div>
-                </div>
-              </GlassCard>
-            </Link>
-          ))}
+                </GlassCard>
+              </Link>
+            );
+          })}
         </div>
       )}
 
-      {/* New Campaign Wizard */}
       {showWizard && (
         <CampaignWizard
           templates={templates}
           onClose={() => setShowWizard(false)}
-          onCreated={(id) => { setShowWizard(false); void load(); }}
+          onCreated={() => { setShowWizard(false); void load(); }}
         />
       )}
     </div>
@@ -278,7 +298,7 @@ function CampaignWizard({
 }: {
   templates: IcpTemplate[];
   onClose: () => void;
-  onCreated: (id: string) => void;
+  onCreated: () => void;
 }) {
   const navigate = useNavigate();
   const [step, setStep] = useState<"template" | "customize" | "launching">("template");
@@ -290,58 +310,67 @@ function CampaignWizard({
   const fallbackTemplates: IcpTemplate[] = [
     {
       id: "dubai-marina-luxury",
-      name: "Dubai Marina — Luxury Brokers",
-      description: "High-end brokerages in Dubai Marina, JBR, Palm Jumeirah. Target luxury portfolio managers.",
-      searchTerms: ["real estate agency", "property broker", "luxury property"],
-      location: "Dubai Marina, Dubai, UAE",
-      maxResults: 50,
+      label: "Dubai Marina — Luxury Brokers",
+      description: "High-end brokerages in Dubai Marina, JBR, Palm Jumeirah.",
+      structured_query: {
+        location: "Dubai Marina, Dubai, UAE",
+        searchTerms: ["real estate agency", "property broker", "luxury property"],
+        maxResults: 50,
+      },
     },
     {
       id: "jvc-affordable",
-      name: "JVC / JVT — Affordable Specialists",
-      description: "Mid-market brokers in Jumeirah Village Circle and Triangle. Strong investor pipeline.",
-      searchTerms: ["real estate agency", "property management", "investment property"],
-      location: "Jumeirah Village Circle, Dubai, UAE",
-      maxResults: 75,
+      label: "JVC / JVT — Affordable Specialists",
+      description: "Mid-market brokers in Jumeirah Village Circle. Strong investor pipeline.",
+      structured_query: {
+        location: "Jumeirah Village Circle, Dubai, UAE",
+        searchTerms: ["real estate agency", "property management", "investment property"],
+        maxResults: 75,
+      },
     },
     {
       id: "downtown-commercial",
-      name: "Downtown — Commercial & Retail",
+      label: "Downtown — Commercial & Retail",
       description: "Commercial property agents near DIFC, Downtown, Business Bay.",
-      searchTerms: ["commercial real estate", "office space", "property consultant"],
-      location: "Downtown Dubai, UAE",
-      maxResults: 50,
+      structured_query: {
+        location: "Downtown Dubai, UAE",
+        searchTerms: ["commercial real estate", "office space", "property consultant"],
+        maxResults: 50,
+      },
     },
     {
       id: "sharjah-ajman",
-      name: "Sharjah & Ajman — NRI Focus",
+      label: "Sharjah & Ajman — NRI Focus",
       description: "Brokers serving NRI buyers. High WhatsApp engagement, underserved by tech.",
-      searchTerms: ["real estate office", "property agency", "NRI property"],
-      location: "Sharjah, UAE",
-      maxResults: 100,
+      structured_query: {
+        location: "Sharjah, UAE",
+        searchTerms: ["real estate office", "property agency", "NRI property"],
+        maxResults: 100,
+      },
     },
   ];
 
   const list = templates.length > 0 ? templates : fallbackTemplates;
 
   async function launch() {
-    if (!selected || !name.trim()) return;
+    if (!selected || !name) return;
     setStep("launching");
     setError(null);
+    const location = tplLocation(selected);
+    const terms = tplSearchTerms(selected);
     try {
       const created = await call<{ id: string }>("outreach.campaign.create", {
-        name: name.trim(),
-        query: `${selected.searchTerms[0]} in ${selected.location}`,
+        name,
+        query: terms.length > 0 ? `${terms[0]} in ${location}` : location,
         structured_query: {
-          location: selected.location,
-          searchTerms: selected.searchTerms,
+          location,
+          searchTerms: terms,
           maxResults,
         },
-        description: selected.description,
+        description: selected.description ?? "",
       });
-      // Kick off the Apify scrape (async — detail page will poll for sync)
       await call("outreach.campaign.run", { id: created.id }).catch(() => {});
-      onCreated(created.id);
+      onCreated();
       navigate(`/campaigns/${created.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create campaign. Check Apify key is configured in Integrations.");
@@ -352,7 +381,6 @@ function CampaignWizard({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
       <GlassCard className="w-full max-w-2xl p-0 overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-white/[0.06]">
           <div>
             <h2 className="font-display font-bold text-base text-white">
@@ -375,17 +403,17 @@ function CampaignWizard({
                   key={t.id}
                   onClick={() => {
                     setSelected(t);
-                    setName(t.name);
-                    setMaxResults(t.maxResults);
+                    setName(tplName(t));
+                    setMaxResults(tplMaxResults(t));
                     setStep("customize");
                   }}
                   className="text-left p-4 rounded-xl border border-white/10 hover:border-primary/40 hover:bg-primary/5 transition-all group"
                 >
-                  <div className="font-bold text-sm text-white group-hover:text-primary transition-colors mb-1">{t.name}</div>
-                  <p className="text-xs text-white/45 leading-relaxed">{t.description}</p>
+                  <div className="font-bold text-sm text-white group-hover:text-primary transition-colors mb-1">{tplName(t)}</div>
+                  <p className="text-xs text-white/45 leading-relaxed">{t.description ?? ""}</p>
                   <div className="flex items-center gap-1.5 mt-2.5">
                     <MapPin size={9} className="text-white/30" />
-                    <span className="text-[10px] text-white/30">{t.location}</span>
+                    <span className="text-[10px] text-white/30">{tplLocation(t)}</span>
                   </div>
                 </button>
               ))}
@@ -426,12 +454,14 @@ function CampaignWizard({
                 <p className="text-xs text-white/40 font-semibold uppercase tracking-wider mb-2">Target Details</p>
                 <div className="flex items-start gap-2 text-xs">
                   <MapPin size={11} className="text-white/30 mt-0.5 shrink-0" />
-                  <span className="text-white/60">{selected.location}</span>
+                  <span className="text-white/60">{tplLocation(selected)}</span>
                 </div>
-                <div className="flex items-start gap-2 text-xs">
-                  <Search size={11} className="text-white/30 mt-0.5 shrink-0" />
-                  <span className="text-white/60">{Array.isArray(selected.searchTerms) ? selected.searchTerms.join(" · ") : ""}</span>
-                </div>
+                {tplSearchTerms(selected).length > 0 && (
+                  <div className="flex items-start gap-2 text-xs">
+                    <Search size={11} className="text-white/30 mt-0.5 shrink-0" />
+                    <span className="text-white/60">{tplSearchTerms(selected).join(" · ")}</span>
+                  </div>
+                )}
               </div>
 
               {error && (
@@ -451,7 +481,7 @@ function CampaignWizard({
                 </button>
                 <button
                   onClick={launch}
-                  disabled={step === "launching" || !name.trim()}
+                  disabled={step === "launching" || !name}
                   className="btn-primary text-sm flex items-center gap-2 flex-1 justify-center"
                 >
                   {step === "launching" ? (
