@@ -85,7 +85,7 @@ export default function REPipeline() {
   const totalValue = tasks
     .filter((t) => t.status === "done")
     .reduce((s, t) => {
-      const v = parseFloat((t.metadata?.estimated_value ?? "0").replace(/[^0-9.]/g, ""));
+      const v = parseFloat(String(t.metadata?.estimated_value ?? "0").replace(/[^0-9.]/g, ""));
       return s + (isNaN(v) ? 0 : v);
     }, 0);
 

@@ -203,9 +203,13 @@ export default function RECampaigns() {
                     {c.structured_query && (
                       <div className="flex items-center gap-1 text-xs text-white/35 mt-0.5">
                         <MapPin size={10} />
-                        <span>{c.structured_query.location}</span>
-                        <span className="text-white/20">·</span>
-                        <span>{c.structured_query.searchTerms.slice(0, 2).join(", ")}</span>
+                        <span>{c.structured_query.location ?? ""}</span>
+                        {Array.isArray(c.structured_query.searchTerms) && c.structured_query.searchTerms.length > 0 && (
+                          <>
+                            <span className="text-white/20">·</span>
+                            <span>{c.structured_query.searchTerms.slice(0, 2).join(", ")}</span>
+                          </>
+                        )}
                       </div>
                     )}
                   </div>
@@ -426,7 +430,7 @@ function CampaignWizard({
                 </div>
                 <div className="flex items-start gap-2 text-xs">
                   <Search size={11} className="text-white/30 mt-0.5 shrink-0" />
-                  <span className="text-white/60">{selected.searchTerms.join(" · ")}</span>
+                  <span className="text-white/60">{Array.isArray(selected.searchTerms) ? selected.searchTerms.join(" · ") : ""}</span>
                 </div>
               </div>
 

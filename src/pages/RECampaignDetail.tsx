@@ -11,13 +11,19 @@ import AnimatedNumber from "@/components/AnimatedNumber";
 import { call } from "@/lib/api";
 import { timeAgo } from "@/lib/utils";
 
-function safeHostname(url: string): string {
+function safeHostname(url: string | null | undefined): string {
+  if (!url) return "";
   try {
     const u = url.startsWith("http") ? url : `https://${url}`;
-    return new URL(u).hostname.replace("www.", "");
+    return new URL(u).hostname?.replace("www.", "") ?? url;
   } catch {
     return url;
   }
+}
+
+function safeHref(url: string | null | undefined): string {
+  if (!url) return "#";
+  return url.startsWith("http") ? url : `https://${url}`;
 }
 
 type Campaign = {
@@ -207,9 +213,13 @@ export default function RECampaignDetail() {
             {campaign?.structured_query && (
               <div className="flex items-center gap-1.5 mt-1.5 text-sm text-white/40">
                 <MapPin size={12} />
-                <span>{campaign.structured_query.location}</span>
-                <span className="text-white/20">·</span>
-                <span>{campaign.structured_query.searchTerms.slice(0, 2).join(", ")}</span>
+                <span>{campaign.structured_query.location ?? ""}</span>
+                {Array.isArray(campaign.structured_query.searchTerms) && campaign.structured_query.searchTerms.length > 0 && (
+                  <>
+                    <span className="text-white/20">·</span>
+                    <span>{campaign.structured_query.searchTerms.slice(0, 2).join(", ")}</span>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -457,7 +467,7 @@ function LeadCard({ lead, expanded, setExpanded }: {
           <div className="grid grid-cols-2 gap-3 mt-3">
             <div className="space-y-1.5 text-xs text-white/50">
               {lead.website && (
-                <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-primary transition-colors">
+                <a href={safeHref(lead.website)} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-primary transition-colors">
                   <Globe size={11} />{safeHostname(lead.website)} <ExternalLink size={9} />
                 </a>
               )}

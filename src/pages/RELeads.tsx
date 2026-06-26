@@ -25,9 +25,10 @@ type Lead = {
   score_factors?: string[];
 };
 
-function safeHostname(url: string): string {
+function safeHostname(url: string | null | undefined): string {
+  if (!url) return "";
   try {
-    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace("www.", "");
+    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname?.replace("www.", "") ?? url;
   } catch {
     return url;
   }
