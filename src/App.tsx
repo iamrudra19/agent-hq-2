@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import RESidebar from "@/components/RESidebar";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import RECommandCenter from "@/pages/RECommandCenter";
 import RELeads from "@/pages/RELeads";
 import RECampaigns from "@/pages/RECampaigns";
@@ -32,19 +33,21 @@ function Shell() {
       <RESidebar />
       <main className="flex-1 px-8 py-7 overflow-y-auto">
         <div className="max-w-[1400px] mx-auto w-full">
-          <Routes>
-            <Route path="/" element={<RECommandCenter />} />
-            <Route path="/leads" element={<RELeads />} />
-            <Route path="/campaigns" element={<RECampaigns />} />
-            <Route path="/campaigns/:id" element={<RECampaignDetail />} />
-            <Route path="/pipeline" element={<REPipeline />} />
-            <Route path="/inbox" element={<Inbox />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/market" element={<REMarketIntel />} />
-            <Route path="/integrations" element={<Integrations />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <ErrorBoundary>
+            <Routes>
+              <Route path="/" element={<RECommandCenter />} />
+              <Route path="/leads" element={<RELeads />} />
+              <Route path="/campaigns" element={<RECampaigns />} />
+              <Route path="/campaigns/:id" element={<RECampaignDetail />} />
+              <Route path="/pipeline" element={<REPipeline />} />
+              <Route path="/inbox" element={<Inbox />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/market" element={<REMarketIntel />} />
+              <Route path="/integrations" element={<Integrations />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </ErrorBoundary>
         </div>
       </main>
     </div>

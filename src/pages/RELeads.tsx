@@ -25,6 +25,14 @@ type Lead = {
   score_factors?: string[];
 };
 
+function safeHostname(url: string): string {
+  try {
+    return new URL(url.startsWith("http") ? url : `https://${url}`).hostname.replace("www.", "");
+  } catch {
+    return url;
+  }
+}
+
 const TIER_STYLE = {
   hot: { tag: "bg-red-500/15 border-red-500/40 text-red-300", dot: "bg-red-400" },
   warm: { tag: "bg-amber/15 border-amber/40 text-amber", dot: "bg-amber" },
@@ -301,8 +309,8 @@ export default function RELeads() {
                     <div className="grid grid-cols-2 gap-3 mt-3">
                       <div className="space-y-1.5 text-xs text-white/50">
                         {lead.website && (
-                          <a href={lead.website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-primary transition-colors">
-                            <Globe size={11} />{new URL(lead.website).hostname.replace("www.", "")}
+                          <a href={lead.website.startsWith("http") ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-primary transition-colors">
+                            <Globe size={11} />{safeHostname(lead.website)}
                             <ExternalLink size={9} />
                           </a>
                         )}

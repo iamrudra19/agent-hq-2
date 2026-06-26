@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Plus, Send, Users, MessageSquare, TrendingUp, Target,
   MapPin, Clock, ChevronRight, Loader2, X, Sparkles,
@@ -236,7 +236,7 @@ export default function RECampaigns() {
         <CampaignWizard
           templates={templates}
           onClose={() => setShowWizard(false)}
-          onCreated={() => { setShowWizard(false); void load(); }}
+          onCreated={(id) => { setShowWizard(false); void load(); }}
         />
       )}
     </div>
@@ -274,8 +274,9 @@ function CampaignWizard({
 }: {
   templates: IcpTemplate[];
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (id: string) => void;
 }) {
+  const navigate = useNavigate();
   const [step, setStep] = useState<"template" | "customize" | "launching">("template");
   const [selected, setSelected] = useState<IcpTemplate | null>(null);
   const [name, setName] = useState("");
@@ -324,7 +325,7 @@ function CampaignWizard({
     setStep("launching");
     setError(null);
     try {
-      await call("outreach.campaign.create", {
+      const created = await call<{ id: string }>("outreach.campaign.create", {
         name: name.trim(),
         query: `${selected.searchTerms[0]} in ${selected.location}`,
         structured_query: {
@@ -333,11 +334,13 @@ function CampaignWizard({
           maxResults,
         },
         description: selected.description,
-        auto_start: true,
       });
-      onCreated();
+      // Kick off the Apify scrape (async — detail page will poll for sync)
+      await call("outreach.campaign.run", { id: created.id }).catch(() => {});
+      onCreated(created.id);
+      navigate(`/campaigns/${created.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create campaign");
+      setError(e instanceof Error ? e.message : "Failed to create campaign. Check Apify key is configured in Integrations.");
       setStep("customize");
     }
   }
