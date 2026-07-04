@@ -39,6 +39,11 @@ const OUTREACH_CAMPAIGNS = "agent-hq-outreach-campaigns";
 const OUTREACH_LEADS = "agent-hq-outreach-leads"; // key: `<campaign_id>/<lead_id>`
 const OUTREACH_EMAILS = "agent-hq-outreach-emails"; // key: `<campaign_id>/<email_id>`
 const OUTREACH_REPLIES = "agent-hq-outreach-replies"; // inbound replies from AgentMail
+const RE_WHATSAPP = "dubai-re-whatsapp"; // key: `<campaign_id>/<timestamp>-<msg_id>`
+const RE_PROPERTIES = "re-properties"; // key: `<property_id>`
+const RE_CONTENT = "re-content"; // key: `<post_id>`
+const RE_APPOINTMENTS = "re-appointments"; // key: `<appointment_id>`
+const RE_CHAT = "re-chat"; // key: `<thread_id>` (stores full message history)
 
 // Service keys we onboard. `gemini` doubles as the voice key — reads through VOICE_CONFIG for back-compat.
 type ServiceKey = "gemini" | "apify" | "agentmail";
@@ -585,6 +590,242 @@ async function previewIcpWithGemini(geminiKey: string, userQuery: string, maxRes
   const rawMax = typeof obj.maxResults === "number" ? obj.maxResults : maxResultsHint ?? 50;
   const maxResults = Math.max(10, Math.min(200, Math.round(rawMax)));
   return { location, searchTerms, maxResults };
+}
+
+// ── Dubai RE SDR helpers ──────────────────────────────────────────
+
+type WhatsAppMessage = {
+  id: string;
+  campaign_id: string;
+  lead_id: string;
+  to_phone: string | null;
+  to_name: string;
+  wa_text: string;
+  character_count: number;
+  language: "en";
+  sequence_position: number;
+  framework: string | null;
+  status: "drafted" | "sent" | "delivered" | "replied";
+  created_at: string;
+  updated_at: string;
+};
+
+const RE_EMAIL_SYSTEM_PROMPT = `You write cold outreach emails for Proxim Systems, an AI growth infrastructure company selling AI automation to UAE real estate brokerages.
+
+PROXIM SYSTEMS: We build AI systems for UAE SMB real estate agencies. Core offering: AI WhatsApp agents that respond to property inquiries in 60 seconds, 24/7, in English, Arabic, Hindi, and Russian — qualifying buyers before human agents see them. Proven result: AED 31.5M in sales for one NRI investor campaign (16.3x ROI).
+
+MARKET CONTEXT (reference these facts when relevant):
+- Dubai had 214,912 property transactions worth AED 760B+ in 2025 (30.6% YoY growth)
+- 90%+ of UAE real estate communication happens on WhatsApp
+- Most SMB brokerages still run on Excel + personal phones + WhatsApp groups
+- Portal lead response time at most agencies: 4+ hours. With AI: 60 seconds.
+- WhatsApp conversion rate: 25–35% vs 1–3% for purchased leads
+- 60–80% of routine inquiries can be handled by AI (availability, pricing, payment plans)
+- 200+ nationalities in Dubai; 60%+ Arabic-speaking market is systematically underserved
+
+PAIN POINTS BY AGENCY TYPE:
+- General brokerage: losing deals to faster-responding agencies; WhatsApp chaos
+- Luxury/investment: international investors research for 2–6 months; no nurture system
+- Commercial: corporate tenant pipeline is inconsistent; no systematic outreach
+- Property management: tenant acquisition is manual; portfolio tracking in spreadsheets
+
+SEQUENCE MODE:
+If a FRAMEWORK and STEP are provided, write that specific step using UAE-context pain points.
+
+PAS (Problem → Agitate → Solution):
+  - Step 1: Name one concrete UAE RE pain. Light curious question. No pitch yet.
+  - Step 2: Spell out the downstream cost of that pain (deals lost, revenue leaked). Still no pitch.
+  - Step 3: Propose AI automation as the resolution. Tie back to step 1 pain. Direct CTA.
+
+AIDA (Attention → Interest → Desire+Action):
+  - Step 1: Open with a surprising UAE RE market stat or observation. Set up curiosity.
+  - Step 2: Build on step 1 with a relevant proof point. Paint the better state AI enables.
+  - Step 3: Reinforce CTA. Very low-friction (15-min call or yes/no reply).
+
+SDR (Direct → Value-add → Breakup):
+  - Step 1: 2–3 lines. What Proxim does, why this agency specifically, open to a quick call?
+  - Step 2: Free insight or UAE RE data point genuinely useful to them — no ask.
+  - Step 3: Graceful off-ramp. Leave contact. No hard sell.
+
+Cross-sequence rule: Steps 2 and 3 MUST reference the prior message naturally. Never copy phrases verbatim.
+
+RULES:
+- 80–120 words. Short subject (5–8 words, no emoji).
+- One specific pain point matching their business type and location.
+- One concrete UAE RE number or proof point.
+- One low-friction CTA.
+- Sign as [sender_name] at Proxim Systems.
+- Conversational, not corporate. No "I hope this finds you well." No superlatives.
+- Do NOT fabricate client names or metrics beyond those listed above.
+- Output ONLY JSON: { "subject": "...", "body_text": "...", "body_html": "<p>...</p>" }
+- body_html = plain paragraphs with <p> tags only. No inline styles.`;
+
+const RE_WA_SYSTEM_PROMPT = `You write high-converting WhatsApp outreach messages for Proxim Systems, selling AI automation to UAE real estate brokerages.
+
+UAE CONTEXT:
+- WhatsApp drives 90%+ of UAE real estate communication
+- 25–35% WhatsApp conversion rate vs 1–3% for purchased leads
+- Speed wins: agencies that respond in 60 seconds close deals; most agencies take 4+ hours
+- Dubai market: AED 760B+ in 2025 transactions, 30.6% YoY growth
+- Most SMB brokerages manage leads manually — Excel, personal phones, WhatsApp groups
+
+RULES:
+- 60–100 words MAXIMUM. Plain text only. No HTML.
+- 2–3 short paragraphs with line breaks.
+- Sound like a real person sending a message, not a bulk blast.
+- 1–2 emojis max, only where they feel natural.
+- One specific pain point relevant to their business type.
+- One value statement: what AI does for brokerages like theirs.
+- One easy question to start a conversation.
+- End with: [sender first name] | Proxim Systems
+- SEQUENCE: If step > 1, start with a natural reference to the prior message.
+- Output ONLY JSON: { "wa_text": "...", "character_count": <number> }`;
+
+const RE_ICP_SYSTEM_PROMPT = `You parse ideal customer profile descriptions for Proxim Systems, targeting UAE real estate brokerages.
+
+Convert the description into a structured Google Maps search optimized for finding UAE real estate businesses.
+
+KEY DUBAI AREAS:
+Commercial hubs: DIFC, Business Bay, Downtown Dubai, DWTC
+Residential luxury: Palm Jumeirah, Dubai Marina, JBR, Downtown
+Mid-market: JLT, Al Barsha, Deira, Bur Dubai, Al Nahda
+Abu Dhabi: Al Reem Island, Yas Island, Al Maryah Island, Khalidiyah
+Sharjah: Sharjah City, Al Majaz, Al Taawun
+
+SEARCH TERM STRATEGY:
+- "real estate agency Dubai" — general brokerages
+- "property broker [area]" — area-specific agents
+- "off-plan property agent Dubai" — investment focused
+- "commercial real estate Dubai" — B2B/office space
+- "property management company Dubai" — portfolio managers
+- "luxury property broker Dubai" — high-value residential
+
+OUTPUT JSON schema: { "location": "string", "searchTerms": ["string"], "maxResults": number }
+- location: specific enough to narrow to the relevant area
+- searchTerms: 2–4 terms
+- maxResults: 50–150 based on ICP breadth`;
+
+async function generateREEmailDraft(
+  geminiKey: string,
+  lead: {
+    name?: string;
+    company?: string;
+    website?: string;
+    category?: string;
+    address?: string;
+    rating?: number;
+    reviews_count?: number;
+  },
+  senderCtx: { sender_name?: string; sender_offer?: string; campaign_query?: string },
+  seq: { framework?: string | null; step?: number; total_steps?: number; previous_steps?: Array<{ step: number; subject: string; body_text: string }> } = {},
+): Promise<{ subject: string; body_text: string; body_html: string }> {
+  const leadSummary = [
+    `Company: ${lead.company ?? lead.name ?? "Unknown"}`,
+    lead.category && `Business type: ${lead.category}`,
+    lead.address && `Location: ${lead.address}`,
+    lead.website && `Website: ${lead.website}`,
+    typeof lead.rating === "number" && `Google rating: ${lead.rating}`,
+    typeof lead.reviews_count === "number" && `Review count: ${lead.reviews_count}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const senderSummary = [
+    `Sender: ${senderCtx.sender_name ?? "Account Executive"} at Proxim Systems`,
+    senderCtx.campaign_query && `Outreach campaign: ${senderCtx.campaign_query}`,
+    senderCtx.sender_offer && `Custom context: ${senderCtx.sender_offer}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  let seqBlock = "";
+  if (seq.framework && seq.step) {
+    seqBlock = `\n\nSEQUENCE: Framework=${seq.framework.toUpperCase()}, Step=${seq.step}/${seq.total_steps ?? 1}`;
+    if (seq.previous_steps?.length) {
+      seqBlock += `\nPrior steps (reference but never repeat verbatim):\n`;
+      for (const ps of seq.previous_steps) {
+        seqBlock += `Step ${ps.step} — Subject: "${ps.subject}"\n${ps.body_text.slice(0, 200)}...\n`;
+      }
+    }
+  }
+
+  const body = {
+    systemInstruction: { role: "system", parts: [{ text: RE_EMAIL_SYSTEM_PROMPT }] },
+    contents: [{ role: "user", parts: [{ text: `RECIPIENT\n${leadSummary}\n\nSENDER\n${senderSummary}${seqBlock}` }] }],
+    generationConfig: { temperature: 0.7, responseMimeType: "application/json" },
+  };
+
+  const r = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+  if (!r.ok) throw new Error(`Gemini error (${r.status}): ${(await r.text()).slice(0, 200)}`);
+
+  const data = (await r.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  let text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) text = fence[1];
+  text = text.trim();
+
+  const parsed = JSON.parse(text) as { subject: string; body_text: string; body_html: string };
+  if (!parsed.subject || !parsed.body_text) throw new Error("Gemini returned incomplete email draft");
+  return parsed;
+}
+
+async function generateREWhatsAppMessage(
+  geminiKey: string,
+  lead: { name?: string; company?: string; category?: string; address?: string; rating?: number },
+  senderCtx: { sender_name?: string; campaign_query?: string },
+  seq: { step?: number; total_steps?: number; previous_steps?: Array<{ step: number; wa_text: string }> } = {},
+): Promise<{ wa_text: string; character_count: number }> {
+  const leadSummary = [
+    `Company: ${lead.company ?? lead.name ?? "Unknown"}`,
+    lead.category && `Business type: ${lead.category}`,
+    lead.address && `Location: ${lead.address}`,
+    typeof lead.rating === "number" && `Google rating: ${lead.rating}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const senderSummary = [
+    `Sender: ${senderCtx.sender_name ?? "Arjun"} at Proxim Systems`,
+    senderCtx.campaign_query && `Campaign target: ${senderCtx.campaign_query}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  let seqBlock = "";
+  if ((seq.step ?? 1) > 1) {
+    seqBlock = `\n\nSEQUENCE: Step ${seq.step} of ${seq.total_steps ?? 1}`;
+    if (seq.previous_steps?.length) {
+      seqBlock += `\nPrior WhatsApp messages (reference naturally, don't repeat):\n`;
+      for (const ps of seq.previous_steps) {
+        seqBlock += `Step ${ps.step}: ${ps.wa_text.slice(0, 150)}...\n`;
+      }
+    }
+  }
+
+  const body = {
+    systemInstruction: { role: "system", parts: [{ text: RE_WA_SYSTEM_PROMPT }] },
+    contents: [{ role: "user", parts: [{ text: `RECIPIENT\n${leadSummary}\n\nSENDER\n${senderSummary}${seqBlock}` }] }],
+    generationConfig: { temperature: 0.75, responseMimeType: "application/json" },
+  };
+
+  const r = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`,
+    { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+  if (!r.ok) throw new Error(`Gemini error (${r.status}): ${(await r.text()).slice(0, 200)}`);
+
+  const data = (await r.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+  let text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fence) text = fence[1];
+  text = text.trim();
+
+  const parsed = JSON.parse(text) as { wa_text: string; character_count?: number };
+  if (!parsed.wa_text) throw new Error("Gemini returned empty WhatsApp message");
+  return { wa_text: parsed.wa_text, character_count: parsed.character_count ?? parsed.wa_text.length };
 }
 
 export const handler: Handler = async (event) => {
@@ -2101,6 +2342,626 @@ export const handler: Handler = async (event) => {
         if (!id) return fail(400, "id required");
         await store(WEBHOOKS).delete(id);
         return ok({ id, deleted: true });
+      }
+
+      // ── DUBAI RE SDR ─────────────────────────────────────────────────
+
+      case "re.icp.templates": {
+        return ok([
+          {
+            id: "smb-brokerages-dubai",
+            label: "Dubai SMB Brokerages — General",
+            emoji: "🏙️",
+            description: "10–50 agent agencies across Dubai's key commercial and residential areas",
+            query: "real estate agencies and property brokerages in Dubai",
+            structured_query: {
+              location: "Dubai, UAE",
+              searchTerms: ["real estate agency Dubai", "property broker Dubai", "real estate brokerage Dubai"],
+              maxResults: 100,
+            },
+            pain_points: ["Portal lead response: 4+ hrs → lost deal", "WhatsApp inbox chaos", "Multilingual buyer gap"],
+          },
+          {
+            id: "commercial-difc-bb",
+            label: "Commercial Brokers — DIFC & Business Bay",
+            emoji: "🏢",
+            description: "Corporate office space and commercial property agents",
+            query: "commercial real estate brokers and office space agents in DIFC Business Bay Dubai",
+            structured_query: {
+              location: "DIFC, Business Bay, Dubai, UAE",
+              searchTerms: ["commercial real estate Dubai", "office space broker DIFC", "commercial property Business Bay"],
+              maxResults: 60,
+            },
+            pain_points: ["Inconsistent corporate tenant pipeline", "No systematic outreach", "Manual Excel CRM"],
+          },
+          {
+            id: "luxury-investment",
+            label: "Luxury & Off-Plan Investment Agents",
+            emoji: "💎",
+            description: "High-value agents serving NRI Indian, Russian, and UK investors",
+            query: "luxury property agents and off-plan investment brokers in Dubai Marina Palm Jumeirah Downtown",
+            structured_query: {
+              location: "Dubai Marina, Palm Jumeirah, Downtown Dubai, UAE",
+              searchTerms: ["luxury property broker Dubai", "off-plan investment agent Dubai", "investment real estate Dubai Marina"],
+              maxResults: 80,
+            },
+            pain_points: ["International investors need 2–6 month nurturing", "No multilingual follow-up", "Losing NRI leads to faster competition"],
+          },
+          {
+            id: "abu-dhabi-sharjah",
+            label: "Abu Dhabi & Sharjah Brokerages",
+            emoji: "🌆",
+            description: "SMB property agencies in Abu Dhabi and Sharjah",
+            query: "real estate agencies and property brokers in Abu Dhabi and Sharjah UAE",
+            structured_query: {
+              location: "Abu Dhabi, Sharjah, UAE",
+              searchTerms: ["real estate agency Abu Dhabi", "property broker Sharjah", "real estate brokerage UAE"],
+              maxResults: 80,
+            },
+            pain_points: ["24/7 lead coverage gap", "Portal lead response speed", "Arabic-language buyer segment underserved"],
+          },
+          {
+            id: "property-management",
+            label: "Property Management Companies",
+            emoji: "🏗️",
+            description: "Companies managing residential and commercial portfolios for landlords",
+            query: "property management companies managing rental properties in Dubai",
+            structured_query: {
+              location: "Dubai, UAE",
+              searchTerms: ["property management company Dubai", "rental property management Dubai", "residential property management UAE"],
+              maxResults: 70,
+            },
+            pain_points: ["Manual tenant acquisition", "WhatsApp maintenance request chaos", "No portfolio analytics"],
+          },
+        ]);
+      }
+
+      case "re.icp.preview": {
+        const { query: reQuery, max_results: reMax } = params as { query: string; max_results?: number };
+        if (!reQuery) return fail(400, "query required");
+        const reGeminiKey = await readServiceKey("gemini");
+        if (!reGeminiKey) return fail(400, "Gemini key not configured");
+
+        const rePreviewBody = {
+          systemInstruction: { role: "system", parts: [{ text: RE_ICP_SYSTEM_PROMPT }] },
+          contents: [{ role: "user", parts: [{ text: `ICP description: ${reQuery}\nMax results hint: ${reMax ?? 100}` }] }],
+          generationConfig: { temperature: 0.2, responseMimeType: "application/json" },
+        };
+
+        const rePreviewR = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(reGeminiKey)}`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(rePreviewBody) },
+        );
+        if (!rePreviewR.ok) return fail(502, `Gemini error (${rePreviewR.status})`);
+
+        const rePreviewData = (await rePreviewR.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+        let rePreviewText = rePreviewData.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        const reFence = rePreviewText.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (reFence) rePreviewText = reFence[1];
+        rePreviewText = rePreviewText.trim();
+
+        try {
+          const reParsed = JSON.parse(rePreviewText) as { location: string; searchTerms: string[]; maxResults: number };
+          return ok({ location: reParsed.location, searchTerms: reParsed.searchTerms, maxResults: reParsed.maxResults ?? reMax ?? 100 });
+        } catch {
+          return fail(500, "Failed to parse structured query from Gemini");
+        }
+      }
+
+      case "re.whatsapp.generate_one": {
+        const {
+          campaign_id: waGenCampaignId,
+          lead_id: waGenLeadId,
+          sender_name: waGenSenderName,
+          step: waGenStep = 1,
+          total_steps: waGenTotalSteps = 1,
+          framework: waGenFramework = null,
+        } = params as { campaign_id: string; lead_id: string; sender_name?: string; step?: number; total_steps?: number; framework?: string | null };
+
+        if (!waGenCampaignId || !waGenLeadId) return fail(400, "campaign_id and lead_id required");
+        const waGeminiKey = await readServiceKey("gemini");
+        if (!waGeminiKey) return fail(400, "Gemini key not configured");
+
+        const waLeads = await listJson<Record<string, unknown>>(store(OUTREACH_LEADS), `${waGenCampaignId}/`);
+        const waLead = waLeads.find((l) => l.id === waGenLeadId);
+        if (!waLead) return fail(404, "Lead not found");
+
+        const waCampaign = await readJson<Record<string, unknown>>(store(OUTREACH_CAMPAIGNS), waGenCampaignId);
+
+        const waExisting = await listJson<WhatsAppMessage>(store(RE_WHATSAPP), `${waGenCampaignId}/`);
+        const waAlreadyExists = waExisting.find((m) => m.lead_id === waGenLeadId && m.sequence_position === waGenStep);
+        if (waAlreadyExists) return ok({ ...waAlreadyExists, already_existed: true });
+
+        const waPrevSteps = waExisting
+          .filter((m) => m.lead_id === waGenLeadId && m.sequence_position < waGenStep)
+          .sort((a, b) => a.sequence_position - b.sequence_position)
+          .map((m) => ({ step: m.sequence_position, wa_text: m.wa_text }));
+
+        const waDraft = await generateREWhatsAppMessage(
+          waGeminiKey,
+          {
+            name: String(waLead.name ?? "Unknown"),
+            company: waLead.company ? String(waLead.company) : undefined,
+            category: waLead.category ? String(waLead.category) : undefined,
+            address: waLead.address ? String(waLead.address) : undefined,
+            rating: typeof waLead.rating === "number" ? waLead.rating : undefined,
+          },
+          { sender_name: waGenSenderName, campaign_query: waCampaign ? String(waCampaign.query ?? "") : undefined },
+          { step: waGenStep, total_steps: waGenTotalSteps, previous_steps: waPrevSteps },
+        );
+
+        const waMsgId = nanoid(12);
+        const waNow = new Date().toISOString();
+        const waMsg: WhatsAppMessage = {
+          id: waMsgId,
+          campaign_id: waGenCampaignId,
+          lead_id: waGenLeadId,
+          to_phone: waLead.phone ? String(waLead.phone) : null,
+          to_name: String(waLead.name ?? "Unknown"),
+          wa_text: waDraft.wa_text,
+          character_count: waDraft.character_count,
+          language: "en",
+          sequence_position: waGenStep,
+          framework: waGenFramework ?? null,
+          status: "drafted",
+          created_at: waNow,
+          updated_at: waNow,
+        };
+
+        await writeJson(store(RE_WHATSAPP), `${waGenCampaignId}/${waNow}-${waMsgId}`, waMsg);
+        return ok(waMsg);
+      }
+
+      case "re.whatsapp.list": {
+        const { campaign_id: waListCampaignId } = params as { campaign_id: string };
+        if (!waListCampaignId) return fail(400, "campaign_id required");
+        const waMessages = await listJson<WhatsAppMessage>(store(RE_WHATSAPP), `${waListCampaignId}/`);
+        waMessages.sort((a, b) => (a.created_at > b.created_at ? 1 : -1));
+        return ok(waMessages);
+      }
+
+      case "re.whatsapp.update": {
+        const { campaign_id: waUpdCampaignId, id: waUpdId, status: waUpdStatus, wa_text: waUpdText } = params as {
+          campaign_id: string;
+          id: string;
+          status?: string;
+          wa_text?: string;
+        };
+        if (!waUpdCampaignId || !waUpdId) return fail(400, "campaign_id and id required");
+        const waUpdMessages = await listJson<WhatsAppMessage>(store(RE_WHATSAPP), `${waUpdCampaignId}/`);
+        const waUpdTarget = waUpdMessages.find((m) => m.id === waUpdId);
+        if (!waUpdTarget) return fail(404, "WhatsApp message not found");
+        const waUpdKey = `${waUpdCampaignId}/${waUpdTarget.created_at}-${waUpdId}`;
+        const waUpdated = {
+          ...waUpdTarget,
+          ...(waUpdStatus ? { status: waUpdStatus as WhatsAppMessage["status"] } : {}),
+          ...(waUpdText ? { wa_text: waUpdText, character_count: waUpdText.length } : {}),
+          updated_at: new Date().toISOString(),
+        };
+        await writeJson(store(RE_WHATSAPP), waUpdKey, waUpdated);
+        return ok(waUpdated);
+      }
+
+      case "re.emails.generate_re_one": {
+        const {
+          campaign_id: reEmailCampaignId,
+          lead_id: reEmailLeadId,
+          sender_name: reEmailSenderName,
+          sender_offer: reEmailSenderOffer,
+          step: reEmailStep = 1,
+          total_steps: reEmailTotalSteps = 1,
+          framework: reEmailFramework = null,
+        } = params as {
+          campaign_id: string;
+          lead_id: string;
+          sender_name?: string;
+          sender_offer?: string;
+          step?: number;
+          total_steps?: number;
+          framework?: string | null;
+        };
+
+        if (!reEmailCampaignId || !reEmailLeadId) return fail(400, "campaign_id and lead_id required");
+        const reEmailGeminiKey = await readServiceKey("gemini");
+        if (!reEmailGeminiKey) return fail(400, "Gemini key not configured");
+
+        const reEmailCampaign = await readJson<Record<string, unknown>>(store(OUTREACH_CAMPAIGNS), reEmailCampaignId);
+        const reEmailLeads = await listJson<Record<string, unknown>>(store(OUTREACH_LEADS), `${reEmailCampaignId}/`);
+        const reEmailLead = reEmailLeads.find((l) => l.id === reEmailLeadId);
+        if (!reEmailLead) return fail(404, "Lead not found");
+
+        const reEmailLeadEmail = reEmailLead.email ? String(reEmailLead.email) : null;
+        if (!reEmailLeadEmail) return fail(400, "Lead has no email address — enrich first");
+
+        const reEmailExisting = await listJson<Record<string, unknown>>(store(OUTREACH_EMAILS), `${reEmailCampaignId}/`);
+        const reEmailAlready = reEmailExisting.find(
+          (e) => e.lead_id === reEmailLeadId && (e.sequence_position as number) === reEmailStep && e.source === "re_ai_drafted",
+        );
+        if (reEmailAlready) return ok({ ...reEmailAlready, already_existed: true });
+
+        const reEmailPrevSteps = reEmailExisting
+          .filter((e) => e.lead_id === reEmailLeadId && (e.sequence_position as number) < reEmailStep && e.source === "re_ai_drafted")
+          .sort((a, b) => ((a.sequence_position as number) > (b.sequence_position as number) ? 1 : -1))
+          .map((e) => ({ step: e.sequence_position as number, subject: String(e.subject ?? ""), body_text: String(e.body_text ?? "") }));
+
+        const reEmailDraft = await generateREEmailDraft(
+          reEmailGeminiKey,
+          {
+            name: String(reEmailLead.name ?? "Unknown"),
+            company: reEmailLead.company ? String(reEmailLead.company) : undefined,
+            website: reEmailLead.website ? String(reEmailLead.website) : undefined,
+            category: reEmailLead.category ? String(reEmailLead.category) : undefined,
+            address: reEmailLead.address ? String(reEmailLead.address) : undefined,
+            rating: typeof reEmailLead.rating === "number" ? reEmailLead.rating : undefined,
+            reviews_count: typeof reEmailLead.reviews_count === "number" ? reEmailLead.reviews_count : undefined,
+          },
+          {
+            sender_name: reEmailSenderName,
+            sender_offer: reEmailSenderOffer,
+            campaign_query: reEmailCampaign ? String(reEmailCampaign.query ?? "") : undefined,
+          },
+          { framework: reEmailFramework ?? null, step: reEmailStep, total_steps: reEmailTotalSteps, previous_steps: reEmailPrevSteps },
+        );
+
+        const reEmailId = nanoid(12);
+        const reEmailNow = new Date().toISOString();
+        const reEmailRecord = {
+          id: reEmailId,
+          campaign_id: reEmailCampaignId,
+          lead_id: reEmailLeadId,
+          to_email: reEmailLeadEmail,
+          to_name: String(reEmailLead.name ?? "Unknown"),
+          subject: reEmailDraft.subject,
+          body_text: reEmailDraft.body_text,
+          body_html: reEmailDraft.body_html,
+          sender_name: reEmailSenderName ?? null,
+          status: "drafted",
+          sequence_position: reEmailStep,
+          sequence_total: reEmailTotalSteps,
+          framework: reEmailFramework ?? null,
+          source: "re_ai_drafted",
+          agentmail_message_id: null,
+          agentmail_thread_id: null,
+          agentmail_inbox_id: null,
+          click_count: 0,
+          created_at: reEmailNow,
+          updated_at: reEmailNow,
+        };
+
+        await writeJson(store(OUTREACH_EMAILS), `${reEmailCampaignId}/${reEmailNow}-${reEmailId}`, reEmailRecord);
+        return ok(reEmailRecord);
+      }
+
+      case "re.leads.score": {
+        const { campaign_id: scoreCampaignId } = params as { campaign_id: string };
+        if (!scoreCampaignId) return fail(400, "campaign_id required");
+
+        const scoreLeads = await listJson<Record<string, unknown>>(store(OUTREACH_LEADS), `${scoreCampaignId}/`);
+        const scored = scoreLeads.map((lead) => {
+          let score = 0;
+          const factors: string[] = [];
+
+          if (lead.email) { score += 30; factors.push("Has email"); }
+          if (lead.phone) { score += 20; factors.push("Has phone (WhatsApp)"); }
+          if (lead.website) { score += 10; factors.push("Has website"); }
+
+          if (typeof lead.rating === "number") {
+            if ((lead.rating as number) >= 4.0) { score += 20; factors.push(`High rating (${lead.rating})`); }
+            else if ((lead.rating as number) >= 3.5) { score += 10; factors.push(`Good rating (${lead.rating})`); }
+          }
+          if (typeof lead.reviews_count === "number") {
+            if ((lead.reviews_count as number) >= 50) { score += 15; factors.push("50+ reviews"); }
+            else if ((lead.reviews_count as number) >= 20) { score += 8; factors.push("20+ reviews"); }
+          }
+
+          const cat = String(lead.category ?? "").toLowerCase();
+          if (cat.includes("real estate") || cat.includes("property") || cat.includes("broker")) {
+            score += 5; factors.push("Confirmed RE category");
+          }
+
+          const tier = score >= 70 ? "hot" : score >= 45 ? "warm" : "cold";
+          return { ...lead, score, tier, score_factors: factors };
+        });
+
+        scored.sort((a, b) => (b.score as number) - (a.score as number));
+        return ok(scored);
+      }
+
+      // ─── Properties ─────────────────────────────────────────────
+      case "re.property.list": {
+        const all = await listJson<{ created_at?: string }>(store(RE_PROPERTIES));
+        all.sort((a, b) => ((a.created_at ?? "") < (b.created_at ?? "") ? 1 : -1));
+        return ok(all);
+      }
+
+      case "re.property.create": {
+        const p = params as Record<string, unknown>;
+        const id = nanoid(12);
+        const now = new Date().toISOString();
+        const property = {
+          id,
+          title: String(p.title ?? "").trim() || "Untitled Property",
+          address: String(p.address ?? "").trim(),
+          area: String(p.area ?? "").trim(),
+          city: String(p.city ?? "Dubai"),
+          price: Number(p.price ?? 0),
+          currency: String(p.currency ?? "AED"),
+          bedrooms: Number(p.bedrooms ?? 0),
+          bathrooms: Number(p.bathrooms ?? 0),
+          sqft: Number(p.sqft ?? 0),
+          property_type: String(p.property_type ?? "Apartment"),
+          status: String(p.status ?? "Active"),
+          listing_type: String(p.listing_type ?? "sale"),
+          description: String(p.description ?? ""),
+          image_url: String(p.image_url ?? ""),
+          days_on_market: 0,
+          created_at: now,
+          updated_at: now,
+        };
+        await writeJson(store(RE_PROPERTIES), id, property);
+        return ok(property);
+      }
+
+      case "re.property.update": {
+        const { id, ...patch } = params as Record<string, unknown>;
+        if (!id || typeof id !== "string") return fail(400, "id required");
+        const s = store(RE_PROPERTIES);
+        const existing = await readJson<Record<string, unknown>>(s, id);
+        if (!existing) return fail(404, "property not found");
+        const updated = { ...existing, ...patch, id, updated_at: new Date().toISOString() };
+        await writeJson(s, id, updated);
+        return ok(updated);
+      }
+
+      case "re.property.delete": {
+        const { id } = params as Record<string, string>;
+        if (!id) return fail(400, "id required");
+        await store(RE_PROPERTIES).delete(id);
+        return ok({ id, deleted: true });
+      }
+
+      // ─── Content Studio ────────────────────────────────────────
+      case "re.content.list": {
+        const all = await listJson<{ created_at?: string }>(store(RE_CONTENT));
+        all.sort((a, b) => ((a.created_at ?? "") < (b.created_at ?? "") ? 1 : -1));
+        return ok(all);
+      }
+
+      case "re.content.delete": {
+        const { id } = params as Record<string, string>;
+        if (!id) return fail(400, "id required");
+        await store(RE_CONTENT).delete(id);
+        return ok({ id, deleted: true });
+      }
+
+      case "re.content.generate": {
+        const {
+          kind = "social_post",
+          platform = "instagram",
+          property_id,
+          topic,
+          tone = "professional",
+          niche = "residential",
+          length = "medium",
+        } = params as Record<string, string>;
+
+        const geminiKey = await readServiceKey("gemini");
+        if (!geminiKey) return fail(400, "Gemini key not configured — set it in Integrations");
+
+        let propContext = "";
+        if (property_id) {
+          const prop = await readJson<Record<string, unknown>>(store(RE_PROPERTIES), property_id);
+          if (prop) {
+            propContext = `\nPROPERTY:\n- Title: ${prop.title}\n- Address: ${prop.address}, ${prop.area}\n- Price: ${prop.currency} ${(prop.price as number).toLocaleString()}\n- ${prop.bedrooms}BR / ${prop.bathrooms}BA · ${prop.sqft} sqft\n- Type: ${prop.property_type}\n- Description: ${prop.description}`;
+          }
+        }
+
+        const sysPrompt = kind === "image_prompt"
+          ? `You are an AI image prompt engineer for UAE real estate marketing. Generate 3 detailed, cinematic image prompts (each 30-60 words) for Midjourney/DALL-E to create stunning property photos. Focus on Dubai/UAE aesthetics: golden hour, luxury interiors, skyline views, palm trees, marble finishes. Return JSON: {"prompts": ["prompt1", "prompt2", "prompt3"]}`
+          : `You are a UAE real estate content writer creating high-engagement ${platform} posts. Market: Dubai/UAE. Audience: HNI investors, NRI buyers, expat residents. Style: ${tone}. Length: ${length === "short" ? "50-80" : length === "long" ? "180-250" : "100-150"} words. Include: hook, emotional benefit, key stats, clear CTA, 5-8 relevant hashtags (Dubai/UAE specific like #DubaiRealEstate #DubaiProperty #DubaiMarina). Return JSON: {"caption": "text with emojis and hashtags", "hashtags": ["#tag1","#tag2"], "call_to_action": "text"}`;
+
+        const userPrompt = `Niche: ${niche}\nTopic: ${topic ?? "featured listing"}${propContext}`;
+
+        const body = {
+          systemInstruction: { role: "system", parts: [{ text: sysPrompt }] },
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+          generationConfig: { temperature: 0.85, responseMimeType: "application/json" },
+        };
+        const r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+        );
+        if (!r.ok) {
+          const txt = await r.text();
+          return fail(500, `Gemini failed: ${txt.slice(0, 200)}`);
+        }
+        const data = (await r.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+        let parsed: Record<string, unknown> = {};
+        try { parsed = JSON.parse(text); } catch { parsed = { caption: text }; }
+
+        const id = nanoid(12);
+        const now = new Date().toISOString();
+        const post = {
+          id,
+          kind,
+          platform,
+          niche,
+          topic: topic ?? "",
+          property_id: property_id ?? null,
+          caption: String(parsed.caption ?? ""),
+          hashtags: Array.isArray(parsed.hashtags) ? parsed.hashtags : [],
+          call_to_action: String(parsed.call_to_action ?? ""),
+          image_prompts: Array.isArray(parsed.prompts) ? parsed.prompts : [],
+          status: "draft",
+          created_at: now,
+          updated_at: now,
+        };
+        await writeJson(store(RE_CONTENT), id, post);
+        return ok(post);
+      }
+
+      // ─── Appointments ───────────────────────────────────────────
+      case "re.appointment.list": {
+        const all = await listJson<{ scheduled_at?: string }>(store(RE_APPOINTMENTS));
+        all.sort((a, b) => ((a.scheduled_at ?? "") > (b.scheduled_at ?? "") ? 1 : -1));
+        return ok(all);
+      }
+
+      case "re.appointment.create": {
+        const p = params as Record<string, unknown>;
+        const id = nanoid(12);
+        const now = new Date().toISOString();
+        const appointment = {
+          id,
+          title: String(p.title ?? "").trim() || "Appointment",
+          lead_name: String(p.lead_name ?? "").trim(),
+          lead_phone: String(p.lead_phone ?? "").trim(),
+          lead_email: String(p.lead_email ?? "").trim(),
+          type: String(p.type ?? "consultation"), // consultation | viewing | closing | negotiation | follow_up
+          property_id: p.property_id ? String(p.property_id) : null,
+          property_address: String(p.property_address ?? "").trim(),
+          scheduled_at: String(p.scheduled_at ?? now),
+          duration_minutes: Number(p.duration_minutes ?? 60),
+          status: String(p.status ?? "scheduled"), // scheduled | confirmed | completed | no_show | cancelled
+          notes: String(p.notes ?? ""),
+          no_show_risk: Math.floor(Math.random() * 30) + 5, // placeholder — real ML later
+          created_at: now,
+          updated_at: now,
+        };
+        await writeJson(store(RE_APPOINTMENTS), id, appointment);
+        return ok(appointment);
+      }
+
+      case "re.appointment.update": {
+        const { id, ...patch } = params as Record<string, unknown>;
+        if (!id || typeof id !== "string") return fail(400, "id required");
+        const s = store(RE_APPOINTMENTS);
+        const existing = await readJson<Record<string, unknown>>(s, id);
+        if (!existing) return fail(404, "appointment not found");
+        const updated = { ...existing, ...patch, id, updated_at: new Date().toISOString() };
+        await writeJson(s, id, updated);
+        return ok(updated);
+      }
+
+      case "re.appointment.delete": {
+        const { id } = params as Record<string, string>;
+        if (!id) return fail(400, "id required");
+        await store(RE_APPOINTMENTS).delete(id);
+        return ok({ id, deleted: true });
+      }
+
+      // ─── Database Reactivation ──────────────────────────────────
+      case "re.reactivation.candidates": {
+        // Groups all leads across all campaigns by inactivity age
+        const campaigns = await listJson<{ id: string }>(store(OUTREACH_CAMPAIGNS));
+        const now = Date.now();
+        const buckets = { "30": [] as any[], "60": [] as any[], "90": [] as any[], "180": [] as any[] };
+        for (const c of campaigns) {
+          const leads = await listJson<Record<string, unknown>>(store(OUTREACH_LEADS), `${c.id}/`);
+          for (const lead of leads) {
+            const lastAt = new Date(String(lead.updated_at ?? lead.created_at ?? now)).getTime();
+            const ageDays = Math.floor((now - lastAt) / (1000 * 60 * 60 * 24));
+            const enriched = { ...lead, campaign_id: c.id, age_days: ageDays };
+            if (ageDays >= 180) buckets["180"].push(enriched);
+            else if (ageDays >= 90) buckets["90"].push(enriched);
+            else if (ageDays >= 60) buckets["60"].push(enriched);
+            else if (ageDays >= 30) buckets["30"].push(enriched);
+          }
+        }
+        return ok({
+          buckets,
+          totals: {
+            "30": buckets["30"].length,
+            "60": buckets["60"].length,
+            "90": buckets["90"].length,
+            "180": buckets["180"].length,
+          },
+        });
+      }
+
+      case "re.reactivation.generate": {
+        const {
+          lead_id: reactLeadId,
+          campaign_id: reactCampaignId,
+          channel = "whatsapp",
+          reason = "market_update",
+        } = params as Record<string, string>;
+        if (!reactLeadId || !reactCampaignId) return fail(400, "lead_id and campaign_id required");
+        const geminiKey = await readServiceKey("gemini");
+        if (!geminiKey) return fail(400, "Gemini key not configured");
+
+        const leadRow = await listJson<Record<string, unknown>>(store(OUTREACH_LEADS), `${reactCampaignId}/`);
+        const lead = leadRow.find((l) => l.id === reactLeadId);
+        if (!lead) return fail(404, "lead not found");
+
+        const reasonPrompt: Record<string, string> = {
+          market_update: "Send a warm re-engagement message tied to the current Dubai property market boom (AED 760B+ 2025 transactions, 30% YoY growth).",
+          new_listing: "Reintroduce with a specific new listing angle matching their earlier interest.",
+          price_drop: "Frame a price/ROI opportunity to draw them back.",
+          holiday: "A friendly seasonal check-in with a soft real estate hook.",
+          follow_up: "A no-pressure follow-up that acknowledges the gap since last contact.",
+        };
+
+        const sysPrompt = channel === "whatsapp"
+          ? `You write short, warm re-engagement WhatsApp messages for dormant Dubai real estate leads. 60-100 words. Plain text, conversational, no headers. Acknowledge the time gap subtly. End with an easy yes/no question.`
+          : channel === "sms"
+          ? `You write ultra-short SMS re-engagement messages (max 160 chars) for dormant Dubai RE leads. Direct, warm, single CTA. No spam feel.`
+          : `You write email re-engagement messages for dormant Dubai RE leads. Subject + body. Warm but professional. 100-150 words. End with a specific, easy CTA (like "reply with a good time for a 10-min call?").`;
+
+        const userPrompt = `LEAD:\n- Name: ${lead.name}\n- Category: ${lead.category ?? "unknown"}\n- Address: ${lead.address ?? "Dubai"}\n\nSTRATEGY: ${reasonPrompt[reason] ?? reasonPrompt.market_update}\n\nReturn JSON: ${channel === "email" ? '{"subject":"...","body":"..."}' : '{"message":"..."}'}`;
+
+        const body = {
+          systemInstruction: { role: "system", parts: [{ text: sysPrompt }] },
+          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
+          generationConfig: { temperature: 0.75, responseMimeType: "application/json" },
+        };
+        const r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+        );
+        if (!r.ok) return fail(500, `Gemini failed: ${(await r.text()).slice(0, 200)}`);
+        const data = (await r.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "{}";
+        let parsed: Record<string, unknown> = {};
+        try { parsed = JSON.parse(text); } catch { parsed = { message: text }; }
+        return ok({ lead_id: reactLeadId, channel, reason, ...parsed });
+      }
+
+      // ─── AI Chat Copilot ────────────────────────────────────────
+      case "re.chat.send": {
+        const { message, history = [] } = params as { message: string; history?: Array<{ role: string; text: string }> };
+        if (!message?.trim()) return fail(400, "message required");
+        const geminiKey = await readServiceKey("gemini");
+        if (!geminiKey) return fail(400, "Gemini key not configured");
+
+        const sysPrompt = `You are Proxim, an AI copilot for a Dubai real estate agent. You know:
+- Dubai market: AED 760B+ 2025 transactions, +30% YoY, PropTech CAGR 17% to 2030
+- Key areas: Dubai Marina (AED 1,850-2,400/sqft), Downtown (AED 2,200-3,100), JVC (AED 900-1,300), Palm Jumeirah (AED 3,500-6,000+), Business Bay (AED 1,400-2,000)
+- Buyer segments: NRI diaspora (35-40%, WhatsApp), UAE HNI (25-30%, referrals), SME commercial (15-20%), end-user families (15-20%)
+- WhatsApp is 90%+ of RE comms in UAE. 60-second response time = 3.2x higher close rate
+- Portals: Bayut 41%, PropertyFinder 35%, Dubizzle 18%
+
+Be concise (2-4 sentences unless a list is asked for). Give tactical, specific advice. If asked for a message/script, format it ready-to-send. Never invent property prices — quote ranges only.`;
+
+        const contents = [
+          ...history.map((h) => ({ role: h.role === "user" ? "user" : "model", parts: [{ text: h.text }] })),
+          { role: "user", parts: [{ text: message }] },
+        ];
+
+        const body = {
+          systemInstruction: { role: "system", parts: [{ text: sysPrompt }] },
+          contents,
+          generationConfig: { temperature: 0.6 },
+        };
+        const r = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(geminiKey)}`,
+          { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+        );
+        if (!r.ok) return fail(500, `Gemini failed: ${(await r.text()).slice(0, 200)}`);
+        const data = (await r.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
+        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+        return ok({ reply });
       }
 
       default:
