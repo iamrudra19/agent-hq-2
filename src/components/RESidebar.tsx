@@ -11,6 +11,11 @@ import {
   Settings,
   Code2,
   Bot,
+  Home,
+  Sparkles,
+  RefreshCw,
+  Calendar,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { call } from "@/lib/api";
@@ -23,13 +28,18 @@ type Agent = {
 };
 
 const NAV = [
-  { to: "/", label: "Command Center", icon: LayoutDashboard, end: true },
-  { to: "/leads", label: "Lead Intelligence", icon: Users },
-  { to: "/campaigns", label: "Outreach", icon: Send },
-  { to: "/pipeline", label: "Deal Pipeline", icon: Kanban },
-  { to: "/inbox", label: "Inbox", icon: Inbox },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/market", label: "Market Intel", icon: Globe },
+  { to: "/", label: "Command Center", icon: LayoutDashboard, end: true, badge: null as string | null },
+  { to: "/leads", label: "Lead Intelligence", icon: Users, badge: null },
+  { to: "/properties", label: "Properties", icon: Home, badge: null },
+  { to: "/content", label: "Content Studio", icon: Sparkles, badge: "AI" },
+  { to: "/reactivation", label: "Database Reactivation", icon: RefreshCw, badge: "New" },
+  { to: "/appointments", label: "Appointments", icon: Calendar, badge: null },
+  { to: "/campaigns", label: "Outreach", icon: Send, badge: null },
+  { to: "/pipeline", label: "Deal Pipeline", icon: Kanban, badge: null },
+  { to: "/chat", label: "AI Copilot", icon: MessageCircle, badge: "AI" },
+  { to: "/inbox", label: "Inbox", icon: Inbox, badge: null },
+  { to: "/analytics", label: "Analytics", icon: BarChart3, badge: null },
+  { to: "/market", label: "Market Intel", icon: Globe, badge: null },
 ];
 
 const SYS_NAV = [
@@ -78,22 +88,28 @@ export default function RESidebar() {
       {/* Main nav */}
       <nav className="flex flex-col gap-0.5">
         <p className="text-[9px] font-bold uppercase tracking-[0.3em] text-white/25 px-3 mb-1">Platform</p>
-        {NAV.map(({ to, label, icon: Icon, end }) => (
+        {NAV.map(({ to, label, icon: Icon, end, badge }) => (
           <NavLink
             key={to}
             to={to}
             end={end}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-bold tracking-wide transition-all",
+                "flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-bold tracking-wide transition-all",
                 isActive
                   ? "bg-primary/10 text-primary border border-primary/25 shadow-[0_0_16px_rgba(0,191,255,0.1)]"
                   : "text-white/60 hover:text-white hover:bg-white/[0.04]",
               )
             }
           >
-            <Icon size={16} strokeWidth={2} />
-            {label}
+            <Icon size={14} strokeWidth={2} />
+            <span className="flex-1 truncate">{label}</span>
+            {badge && (
+              <span className={cn(
+                "text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase tracking-wider shrink-0",
+                badge === "AI" ? "bg-primary/20 text-primary" : "bg-accent/20 text-accent"
+              )}>{badge}</span>
+            )}
           </NavLink>
         ))}
       </nav>

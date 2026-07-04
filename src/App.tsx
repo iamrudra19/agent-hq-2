@@ -3,6 +3,11 @@ import RESidebar from "@/components/RESidebar";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import RECommandCenter from "@/pages/RECommandCenter";
 import RELeads from "@/pages/RELeads";
+import REProperties from "@/pages/REProperties";
+import REContentStudio from "@/pages/REContentStudio";
+import REReactivation from "@/pages/REReactivation";
+import REAppointments from "@/pages/REAppointments";
+import REChat from "@/pages/REChat";
 import RECampaigns from "@/pages/RECampaigns";
 import RECampaignDetail from "@/pages/RECampaignDetail";
 import REPipeline from "@/pages/REPipeline";
@@ -37,6 +42,11 @@ function Shell() {
             <Routes>
               <Route path="/" element={<RECommandCenter />} />
               <Route path="/leads" element={<RELeads />} />
+              <Route path="/properties" element={<REProperties />} />
+              <Route path="/content" element={<REContentStudio />} />
+              <Route path="/reactivation" element={<REReactivation />} />
+              <Route path="/appointments" element={<REAppointments />} />
+              <Route path="/chat" element={<REChat />} />
               <Route path="/campaigns" element={<RECampaigns />} />
               <Route path="/campaigns/:id" element={<RECampaignDetail />} />
               <Route path="/pipeline" element={<REPipeline />} />
